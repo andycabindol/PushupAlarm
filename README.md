@@ -89,16 +89,16 @@ Before your first alarm, try the detection:
 
 The app uses Apple's Vision framework with the following approach:
 
-1. **Upper-body Pose Detection**: `VNDetectHumanBodyPoseRequest` tracks the nose plus shoulders, elbows, and wrists (hips/legs are ignored)
+1. **Upper-body Pose Detection**: `VNDetectHumanBodyPoseRequest` tracks the nose/neck plus shoulders, elbows, and wrists (hips/legs are ignored)
 
-2. **Elbow Angle**: Measures the shoulder → elbow → wrist angle on whichever arms are confidently visible (one arm is enough)
+2. **Depth Score**: Combines elbow bend, shoulder-to-wrist distance, and head-to-hand proximity into a smoothed 0…1 “how low are you” score
 
-3. **Head Signal**: Uses nose proximity to the wrists / position relative to the shoulders so floor-camera foreshortening still registers a down position
+3. **Dropout Tolerance**: When the chest fills the camera at the bottom and Vision briefly loses joints, the detector holds the down state instead of failing
 
 4. **Pushup Recognition**:
-   - **Down position**: Elbow angle &lt; ~110° (or borderline bend with head lowered)
-   - **Up position**: Elbow angle &gt; ~150° (or arms opening with head raised)
-   - **Rep counted**: When transitioning from DOWN → UP
+   - **Down**: depth crosses the low threshold (sets a “reached bottom” flag)
+   - **Up**: depth crosses the high threshold
+   - **Rep counted**: after a bottom has been reached, the next up counts — even if frames pass through neutral or briefly lose the pose
 
 ### Architecture
 

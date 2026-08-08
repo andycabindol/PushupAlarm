@@ -14,17 +14,19 @@ class PushupDetector: ObservableObject {
     @Published var feedback = "Place phone on the floor and face the camera"
     @Published var bodyDetected = false
     
-    private var lastPhase: PushupPhase = .neutral
+    /// Remembers that the bottom of a rep was reached, even if frames
+    /// briefly go through neutral or Vision loses the pose at the floor.
+    private var hasReachedBottom = false
+    private var consecutiveMisses = 0
+    private var smoothedDepth: CGFloat?
     
-    /// Elbow angle (degrees) below this counts as the bottom of a rep.
-    /// Slightly forgiving so foreshortened floor-camera views still register.
-    private let downThreshold: CGFloat = 110.0
-    /// Elbow angle above this counts as the top of a rep.
-    private let upThreshold: CGFloat = 150.0
-    /// Soft band where head position can tip a borderline pose into up/down.
-    private let borderlineDown: CGFloat = 130.0
-    private let borderlineUp: CGFloat = 125.0
-    private let minConfidence: Float = 0.25
+    /// Depth 0 = arms extended / up, 1 = chest near floor / down.
+    private let downEnter: CGFloat = 0.52
+    private let upEnter: CGFloat = 0.32
+    private let minConfidence: Float = 0.15
+    /// Hold the last good pose through short dropouts (~0.5s at 30fps).
+    private let maxMissesToHold = 18
+    private let depthSmoothing: CGFloat = 0.35
     
     func processFrame(_ sampleBuffer: CMSampleBuffer) {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
@@ -34,15 +36,13 @@ class PushupDetector: ObservableObject {
             
             if let error = error {
                 print("Pose detection error: \(error)")
+                self.handleMiss(reason: "Pose error — keep facing the camera")
                 return
             }
             
             guard let observations = request.results as? [VNHumanBodyPoseObservation],
                   let observation = observations.first else {
-                DispatchQueue.main.async {
-                    self.bodyDetected = false
-                    self.feedback = "No one detected — face the camera"
-                }
+                self.handleMiss(reason: "No one detected — face the camera")
                 return
             }
             
@@ -55,13 +55,13 @@ class PushupDetector: ObservableObject {
             try handler.perform([request])
         } catch {
             print("Failed to perform pose detection: \(error)")
+            handleMiss(reason: "Camera hiccup — hold position")
         }
     }
     
     private func analyzePose(_ observation: VNHumanBodyPoseObservation) {
-        // Track upper body only: arms + head. Hips/legs are often hidden when
-        // the phone is on the floor and the torso covers them.
         let nose = try? observation.recognizedPoint(.nose)
+        let neck = try? observation.recognizedPoint(.neck)
         let leftShoulder = try? observation.recognizedPoint(.leftShoulder)
         let rightShoulder = try? observation.recognizedPoint(.rightShoulder)
         let leftElbow = try? observation.recognizedPoint(.leftElbow)
@@ -69,114 +69,153 @@ class PushupDetector: ObservableObject {
         let leftWrist = try? observation.recognizedPoint(.leftWrist)
         let rightWrist = try? observation.recognizedPoint(.rightWrist)
         
-        let headVisible = pointVisible(nose)
-        
-        var armAngles: [CGFloat] = []
-        if let angle = elbowAngle(shoulder: leftShoulder, elbow: leftElbow, wrist: leftWrist) {
-            armAngles.append(angle)
-        }
-        if let angle = elbowAngle(shoulder: rightShoulder, elbow: rightElbow, wrist: rightWrist) {
-            armAngles.append(angle)
-        }
-        
-        guard !armAngles.isEmpty else {
-            DispatchQueue.main.async {
-                self.bodyDetected = false
-                self.feedback = "Show your arms to the camera"
-            }
-            return
-        }
-        
-        guard headVisible, let nose else {
-            DispatchQueue.main.async {
-                self.bodyDetected = false
-                self.feedback = "Keep your head in frame"
-            }
-            return
-        }
-        
-        DispatchQueue.main.async {
-            self.bodyDetected = true
-        }
-        
-        let averageElbowAngle = armAngles.reduce(0, +) / CGFloat(armAngles.count)
-        let headIsLowered = isHeadLowered(
+        let depthSignals = depthSignals(
             nose: nose,
+            neck: neck,
             leftShoulder: leftShoulder,
             rightShoulder: rightShoulder,
+            leftElbow: leftElbow,
+            rightElbow: rightElbow,
             leftWrist: leftWrist,
             rightWrist: rightWrist
         )
         
+        guard !depthSignals.isEmpty else {
+            // At the bottom, landmarks often vanish when the chest fills the
+            // frame. Keep treating that as "still down" instead of failing.
+            handleMiss(reason: "Move back a little so arms stay visible")
+            return
+        }
+        
+        consecutiveMisses = 0
+        
+        let rawDepth = depthSignals.reduce(0, +) / CGFloat(depthSignals.count)
+        let depth: CGFloat
+        if let smoothedDepth {
+            depth = smoothedDepth + (rawDepth - smoothedDepth) * depthSmoothing
+        } else {
+            depth = rawDepth
+        }
+        smoothedDepth = depth
+        
         let newPhase: PushupPhase
-        var newFeedback = ""
+        var newFeedback: String
+        var didCount = false
         
-        // Arms drive the phase; head proximity tips borderline floor-camera poses.
-        if averageElbowAngle < downThreshold || (averageElbowAngle < borderlineDown && headIsLowered) {
+        if depth >= downEnter {
             newPhase = .down
+            hasReachedBottom = true
             newFeedback = "Down ✓ — now push up"
-        } else if averageElbowAngle > upThreshold || (averageElbowAngle > borderlineUp && !headIsLowered) {
+        } else if depth <= upEnter {
             newPhase = .up
-            newFeedback = "Up ✓ — lower down"
-        } else {
-            newPhase = .neutral
-            if headIsLowered {
-                newFeedback = "Go a bit lower, then push up"
+            if hasReachedBottom {
+                hasReachedBottom = false
+                didCount = true
+                newFeedback = "Rep \(pushupCount + 1) complete!"
             } else {
-                newFeedback = "Bend your elbows to go down"
-            }
-        }
-        
-        // Count a completed rep when rising from the bottom.
-        if lastPhase == .down && newPhase == .up {
-            DispatchQueue.main.async {
-                self.pushupCount += 1
-                self.currentPhase = newPhase
-                self.feedback = "Rep \(self.pushupCount) complete!"
+                newFeedback = "Up ✓ — lower your chest"
             }
         } else {
-            DispatchQueue.main.async {
-                self.feedback = newFeedback
-                self.currentPhase = newPhase
+            // Mid-rep: keep hasReachedBottom so down → neutral → up still counts.
+            newPhase = .neutral
+            if hasReachedBottom {
+                newFeedback = "Push all the way up"
+            } else {
+                newFeedback = "Lower your chest toward the floor"
             }
         }
         
-        lastPhase = newPhase
+        DispatchQueue.main.async {
+            self.bodyDetected = true
+            self.currentPhase = newPhase
+            if didCount {
+                self.pushupCount += 1
+            }
+            self.feedback = didCount ? "Rep \(self.pushupCount) complete!" : newFeedback
+        }
     }
     
-    /// True when the head has dropped toward the hands — reliable for a
-    /// phone-on-the-floor view where elbows can look foreshortened.
-    private func isHeadLowered(
-        nose: VNRecognizedPoint,
+    /// Builds 0...1 depth cues from arms/head. Missing joints are skipped,
+    /// so a partial view (one arm, or shoulders only) can still work.
+    private func depthSignals(
+        nose: VNRecognizedPoint?,
+        neck: VNRecognizedPoint?,
         leftShoulder: VNRecognizedPoint?,
         rightShoulder: VNRecognizedPoint?,
+        leftElbow: VNRecognizedPoint?,
+        rightElbow: VNRecognizedPoint?,
         leftWrist: VNRecognizedPoint?,
         rightWrist: VNRecognizedPoint?
-    ) -> Bool {
-        let wrists = [leftWrist, rightWrist].compactMap { point -> CGPoint? in
-            guard let point, point.confidence > minConfidence else { return nil }
-            return point.location
+    ) -> [CGFloat] {
+        var signals: [CGFloat] = []
+        
+        let shoulderPoints = visiblePoints([leftShoulder, rightShoulder])
+        let wristPoints = visiblePoints([leftWrist, rightWrist])
+        let elbowAngles = [
+            elbowAngle(shoulder: leftShoulder, elbow: leftElbow, wrist: leftWrist),
+            elbowAngle(shoulder: rightShoulder, elbow: rightElbow, wrist: rightWrist)
+        ].compactMap { $0 }
+        
+        // 1) Elbow flexion — primary when the full arm is visible.
+        if !elbowAngles.isEmpty {
+            let avg = elbowAngles.reduce(0, +) / CGFloat(elbowAngles.count)
+            // ~170° => up (0), ~80° => down (1)
+            signals.append(clamped((165 - avg) / 85))
         }
         
-        if !wrists.isEmpty {
-            let wristMid = averagePoint(wrists)
-            let distance = hypot(nose.location.x - wristMid.x, nose.location.y - wristMid.y)
-            // Nose near planted hands ⇒ bottom of the pushup.
-            if distance < 0.28 {
-                return true
+        // 2) Shoulder-to-wrist proximity — strong for floor-camera pushups.
+        if let shoulderMid = midpoint(of: shoulderPoints),
+           let wristMid = midpoint(of: wristPoints) {
+            let span = hypot(shoulderMid.x - wristMid.x, shoulderMid.y - wristMid.y)
+            let scale: CGFloat
+            if shoulderPoints.count == 2 {
+                scale = max(hypot(shoulderPoints[0].x - shoulderPoints[1].x,
+                                  shoulderPoints[0].y - shoulderPoints[1].y), 0.08)
+            } else {
+                scale = 0.18
             }
+            let ratio = span / scale
+            // Extended plank ~2.2+, chest-down ~0.9
+            signals.append(clamped((2.1 - ratio) / 1.2))
         }
         
-        let shoulders = [leftShoulder, rightShoulder].compactMap { point -> CGPoint? in
-            guard let point, point.confidence > minConfidence else { return nil }
-            return point.location
+        // 3) Head/neck near hands — useful until the face fills the lens.
+        let headPoint = visibleLocation(nose) ?? visibleLocation(neck)
+        if let headPoint, let wristMid = midpoint(of: wristPoints) {
+            let distance = hypot(headPoint.x - wristMid.x, headPoint.y - wristMid.y)
+            signals.append(clamped((0.42 - distance) / 0.28))
         }
         
-        guard !shoulders.isEmpty else { return false }
+        // 4) Shoulders alone vs prior depth: if we already started a rep and
+        // only shoulders remain, bias toward "down" rather than dropping out.
+        if signals.isEmpty, !shoulderPoints.isEmpty, hasReachedBottom {
+            signals.append(0.7)
+        }
         
-        let shoulderMid = averagePoint(shoulders)
-        // Vision coords: Y increases upward. Head below the shoulder line ⇒ lowered.
-        return nose.location.y < shoulderMid.y - 0.04
+        return signals
+    }
+    
+    /// Vision often blanks at the bottom; hold pose briefly so the rep can finish.
+    private func handleMiss(reason: String) {
+        consecutiveMisses += 1
+        
+        if hasReachedBottom && consecutiveMisses <= maxMissesToHold {
+            DispatchQueue.main.async {
+                self.bodyDetected = true
+                self.currentPhase = .down
+                self.feedback = "Down ✓ — now push up"
+            }
+            return
+        }
+        
+        if consecutiveMisses > maxMissesToHold {
+            smoothedDepth = nil
+        }
+        
+        DispatchQueue.main.async {
+            self.bodyDetected = false
+            self.feedback = reason
+        }
     }
     
     private func elbowAngle(
@@ -199,14 +238,23 @@ class PushupDetector: ObservableObject {
         )
     }
     
-    private func pointVisible(_ point: VNRecognizedPoint?) -> Bool {
-        guard let point else { return false }
-        return point.confidence > minConfidence
+    private func visiblePoints(_ points: [VNRecognizedPoint?]) -> [CGPoint] {
+        points.compactMap { visibleLocation($0) }
     }
     
-    private func averagePoint(_ points: [CGPoint]) -> CGPoint {
+    private func visibleLocation(_ point: VNRecognizedPoint?) -> CGPoint? {
+        guard let point, point.confidence > minConfidence else { return nil }
+        return point.location
+    }
+    
+    private func midpoint(of points: [CGPoint]) -> CGPoint? {
+        guard !points.isEmpty else { return nil }
         let sum = points.reduce(CGPoint.zero) { CGPoint(x: $0.x + $1.x, y: $0.y + $1.y) }
         return CGPoint(x: sum.x / CGFloat(points.count), y: sum.y / CGFloat(points.count))
+    }
+    
+    private func clamped(_ value: CGFloat) -> CGFloat {
+        min(1, max(0, value))
     }
     
     private func calculateAngle(point1: CGPoint, point2: CGPoint, point3: CGPoint) -> CGFloat {
@@ -227,7 +275,9 @@ class PushupDetector: ObservableObject {
     func reset() {
         pushupCount = 0
         currentPhase = .neutral
-        lastPhase = .neutral
+        hasReachedBottom = false
+        consecutiveMisses = 0
+        smoothedDepth = nil
         feedback = "Place phone on the floor and face the camera"
         bodyDetected = false
     }
