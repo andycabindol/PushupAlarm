@@ -17,16 +17,20 @@ class PushupDetector: ObservableObject {
     /// Remembers that the bottom of a rep was reached, even if frames
     /// briefly go through neutral or Vision loses the pose at the floor.
     private var hasReachedBottom = false
+    private var peakBottomDepth: CGFloat = 0
     private var consecutiveMisses = 0
     private var smoothedDepth: CGFloat?
     
     /// Depth 0 = arms extended / up, 1 = chest near floor / down.
-    private let downEnter: CGFloat = 0.52
-    private let upEnter: CGFloat = 0.32
+    private let downEnter: CGFloat = 0.48
+    /// Absolute up threshold — generous because floor-camera arms rarely look fully straight.
+    private let upEnter: CGFloat = 0.40
+    /// Also count an up once depth falls this far from the bottom peak.
+    private let minRiseFromBottom: CGFloat = 0.18
     private let minConfidence: Float = 0.15
     /// Hold the last good pose through short dropouts (~0.5s at 30fps).
     private let maxMissesToHold = 18
-    private let depthSmoothing: CGFloat = 0.35
+    private let depthSmoothing: CGFloat = 0.45
     
     func processFrame(_ sampleBuffer: CMSampleBuffer) {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
@@ -69,7 +73,7 @@ class PushupDetector: ObservableObject {
         let leftWrist = try? observation.recognizedPoint(.leftWrist)
         let rightWrist = try? observation.recognizedPoint(.rightWrist)
         
-        let depthSignals = depthSignals(
+        guard let rawDepth = estimateDepth(
             nose: nose,
             neck: neck,
             leftShoulder: leftShoulder,
@@ -78,9 +82,7 @@ class PushupDetector: ObservableObject {
             rightElbow: rightElbow,
             leftWrist: leftWrist,
             rightWrist: rightWrist
-        )
-        
-        guard !depthSignals.isEmpty else {
+        ) else {
             // At the bottom, landmarks often vanish when the chest fills the
             // frame. Keep treating that as "still down" instead of failing.
             handleMiss(reason: "Move back a little so arms stay visible")
@@ -89,7 +91,6 @@ class PushupDetector: ObservableObject {
         
         consecutiveMisses = 0
         
-        let rawDepth = depthSignals.reduce(0, +) / CGFloat(depthSignals.count)
         let depth: CGFloat
         if let smoothedDepth {
             depth = smoothedDepth + (rawDepth - smoothedDepth) * depthSmoothing
@@ -98,18 +99,24 @@ class PushupDetector: ObservableObject {
         }
         smoothedDepth = depth
         
+        let roseEnough = hasReachedBottom && (peakBottomDepth - depth) >= minRiseFromBottom
+        let isDown = depth >= downEnter
+        let isUp = depth <= upEnter || roseEnough
+        
         let newPhase: PushupPhase
         var newFeedback: String
         var didCount = false
         
-        if depth >= downEnter {
+        if isDown {
             newPhase = .down
             hasReachedBottom = true
+            peakBottomDepth = max(peakBottomDepth, depth)
             newFeedback = "Down ✓ — now push up"
-        } else if depth <= upEnter {
+        } else if isUp {
             newPhase = .up
             if hasReachedBottom {
                 hasReachedBottom = false
+                peakBottomDepth = 0
                 didCount = true
                 newFeedback = "Rep \(pushupCount + 1) complete!"
             } else {
@@ -119,7 +126,8 @@ class PushupDetector: ObservableObject {
             // Mid-rep: keep hasReachedBottom so down → neutral → up still counts.
             newPhase = .neutral
             if hasReachedBottom {
-                newFeedback = "Push all the way up"
+                peakBottomDepth = max(peakBottomDepth, depth)
+                newFeedback = "Keep extending your arms"
             } else {
                 newFeedback = "Lower your chest toward the floor"
             }
@@ -135,9 +143,10 @@ class PushupDetector: ObservableObject {
         }
     }
     
-    /// Builds 0...1 depth cues from arms/head. Missing joints are skipped,
-    /// so a partial view (one arm, or shoulders only) can still work.
-    private func depthSignals(
+    /// Arm-led depth estimate. Head can push the score toward "down" but
+    /// cannot keep it high at the top — with a floor camera your face stays
+    /// close to the phone even when arms are fully extended.
+    private func estimateDepth(
         nose: VNRecognizedPoint?,
         neck: VNRecognizedPoint?,
         leftShoulder: VNRecognizedPoint?,
@@ -146,8 +155,8 @@ class PushupDetector: ObservableObject {
         rightElbow: VNRecognizedPoint?,
         leftWrist: VNRecognizedPoint?,
         rightWrist: VNRecognizedPoint?
-    ) -> [CGFloat] {
-        var signals: [CGFloat] = []
+    ) -> CGFloat? {
+        var armSignals: [CGFloat] = []
         
         let shoulderPoints = visiblePoints([leftShoulder, rightShoulder])
         let wristPoints = visiblePoints([leftWrist, rightWrist])
@@ -157,10 +166,10 @@ class PushupDetector: ObservableObject {
         ].compactMap { $0 }
         
         // 1) Elbow flexion — primary when the full arm is visible.
+        // Map ~155°+ => up (0), ~90° => down (1). Floor views rarely hit 170°.
         if !elbowAngles.isEmpty {
             let avg = elbowAngles.reduce(0, +) / CGFloat(elbowAngles.count)
-            // ~170° => up (0), ~80° => down (1)
-            signals.append(clamped((165 - avg) / 85))
+            armSignals.append(clamped((155 - avg) / 65))
         }
         
         // 2) Shoulder-to-wrist proximity — strong for floor-camera pushups.
@@ -175,24 +184,32 @@ class PushupDetector: ObservableObject {
                 scale = 0.18
             }
             let ratio = span / scale
-            // Extended plank ~2.2+, chest-down ~0.9
-            signals.append(clamped((2.1 - ratio) / 1.2))
+            // Extended ~1.8+, chest-down ~0.8
+            armSignals.append(clamped((1.9 - ratio) / 1.1))
         }
         
-        // 3) Head/neck near hands — useful until the face fills the lens.
+        if armSignals.isEmpty {
+            // Shoulders alone after a bottom: keep a mild down bias.
+            if !shoulderPoints.isEmpty, hasReachedBottom {
+                return 0.55
+            }
+            return nil
+        }
+        
+        var depth = armSignals.reduce(0, +) / CGFloat(armSignals.count)
+        
+        // Head only boosts downward when clearly near the hands. Never average
+        // it in at the top or floor-camera closeness blocks "up".
         let headPoint = visibleLocation(nose) ?? visibleLocation(neck)
         if let headPoint, let wristMid = midpoint(of: wristPoints) {
             let distance = hypot(headPoint.x - wristMid.x, headPoint.y - wristMid.y)
-            signals.append(clamped((0.42 - distance) / 0.28))
+            let headDown = clamped((0.28 - distance) / 0.18)
+            if headDown > 0.55 {
+                depth = max(depth, (depth + headDown) / 2)
+            }
         }
         
-        // 4) Shoulders alone vs prior depth: if we already started a rep and
-        // only shoulders remain, bias toward "down" rather than dropping out.
-        if signals.isEmpty, !shoulderPoints.isEmpty, hasReachedBottom {
-            signals.append(0.7)
-        }
-        
-        return signals
+        return depth
     }
     
     /// Vision often blanks at the bottom; hold pose briefly so the rep can finish.
@@ -276,6 +293,7 @@ class PushupDetector: ObservableObject {
         pushupCount = 0
         currentPhase = .neutral
         hasReachedBottom = false
+        peakBottomDepth = 0
         consecutiveMisses = 0
         smoothedDepth = nil
         feedback = "Place phone on the floor and face the camera"
