@@ -6,8 +6,8 @@ An iOS alarm app that requires you to complete 10 pushups to dismiss the alarm! 
 
 - ⏰ Set alarms with a simple, beautiful interface
 - 📸 Camera-based pushup detection using Vision framework
-- 🎯 Real-time pose tracking with body keypoint detection
-- ✅ Form validation - ensures proper pushup technique
+- 🎯 Real-time upper-body tracking (arms + head) via Vision keypoints
+- ✅ Works with the phone on the floor — no need for legs/hips in frame
 - 🔊 Persistent alarm sound until you complete 10 pushups
 - 🧪 Test mode to try pushup detection without setting an alarm
 
@@ -65,15 +65,14 @@ Download or copy the entire `PushupAlarm` project folder to your Mac.
 
 1. The app will open automatically (or you can tap the notification)
 2. The alarm sound will play persistently
-3. Position yourself in front of the camera:
-   - Stand far enough that your full body is visible
-   - Face the camera (front-facing camera is used)
+3. Place the phone on the floor facing you and get into pushup position:
+   - Keep your head and arms visible to the front camera
+   - Legs/hips do not need to be in frame
    - Make sure there's good lighting
-4. Perform 10 proper pushups:
-   - The app tracks your elbow angle and body alignment
-   - Go down until your elbows are at ~90 degrees
-   - Push back up to full extension
-   - Keep your body straight (planking position)
+4. Perform 10 pushups:
+   - The app tracks elbow bend plus head position
+   - Lower until your elbows bend / head drops toward your hands
+   - Push back up to arm extension
 5. After 10 valid pushups, the alarm dismisses automatically!
 
 ### Testing Pushup Detection
@@ -90,20 +89,16 @@ Before your first alarm, try the detection:
 
 The app uses Apple's Vision framework with the following approach:
 
-1. **Body Pose Detection**: `VNDetectHumanBodyPoseRequest` identifies 19+ body keypoints (shoulders, elbows, wrists, hips, etc.)
+1. **Upper-body Pose Detection**: `VNDetectHumanBodyPoseRequest` tracks the nose plus shoulders, elbows, and wrists (hips/legs are ignored)
 
-2. **Angle Calculation**: Calculates elbow angles by measuring the angle between:
-   - Shoulder → Elbow → Wrist vectors
+2. **Elbow Angle**: Measures the shoulder → elbow → wrist angle on whichever arms are confidently visible (one arm is enough)
 
-3. **Pushup Recognition**:
-   - **Down position**: Elbow angle < 90°
-   - **Up position**: Elbow angle > 160°
-   - **Rep counted**: When transitioning from UP → DOWN
+3. **Head Signal**: Uses nose proximity to the wrists / position relative to the shoulders so floor-camera foreshortening still registers a down position
 
-4. **Form Validation**: 
-   - Checks body alignment (shoulder-to-hip straightness)
-   - Ensures proper plank position
-   - Rejects incomplete reps or poor form
+4. **Pushup Recognition**:
+   - **Down position**: Elbow angle &lt; ~110° (or borderline bend with head lowered)
+   - **Up position**: Elbow angle &gt; ~150° (or arms opening with head raised)
+   - **Rep counted**: When transitioning from DOWN → UP
 
 ### Architecture
 
@@ -135,9 +130,9 @@ AlarmChallengeView.swift   - Fullscreen pushup challenge UI
 ### Pushups Not Being Counted
 
 - **Lighting**: Ensure good lighting so the camera can see you clearly
-- **Distance**: Step back so your entire body is in frame
-- **Angle**: Face the camera directly (use front camera)
-- **Form**: Do full range of motion pushups with straight body
+- **Framing**: Place the phone on the floor so your head and arms are in frame (legs optional)
+- **Angle**: Face the front camera; keep both wrists visible if you can
+- **Form**: Go through a clear down and up — bent elbows, then full extension
 - **Speed**: Don't rush - give the detector time to register each position
 
 ### Build Errors in Xcode
@@ -167,7 +162,7 @@ Want to modify the app? Here are some ideas:
 ## Known Limitations
 
 - App must be installed on device (can't run from background without being installed)
-- Camera must see your full body for accurate detection
+- Camera must see your head and at least one full arm (shoulder → elbow → wrist)
 - Works best with good lighting conditions
 - Front camera is used (mirrored view)
 - Only portrait orientation supported

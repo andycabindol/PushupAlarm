@@ -28,7 +28,7 @@ Click the ▶️ button (or press Cmd+R)
 
 1. Open the app
 2. Tap "Test Pushup Detection" at the bottom
-3. Position your full body in frame
+3. Place the phone on the floor so your head and arms are in frame
 4. Do some pushups and watch it count!
 
 ---
@@ -46,10 +46,10 @@ Click the ▶️ button (or press Cmd+R)
 ## Troubleshooting
 
 **Not counting pushups?**
-- Step further back from camera
-- Make sure full body is visible
-- Keep body straight like a plank
-- Go all the way down and all the way up
+- Keep your head and arms in frame (legs can be out of view)
+- Face the front camera with good lighting
+- Lower until elbows bend, then push all the way up
+- Slow down a bit so each position can register
 
 **Camera permission denied?**
 Settings > Privacy > Camera > PushupAlarm > Enable
