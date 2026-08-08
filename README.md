@@ -1,0 +1,191 @@
+# 💪 Pushup Alarm - iOS App
+
+An iOS alarm app that requires you to complete 10 pushups to dismiss the alarm! Uses Apple's Vision framework for real-time pose detection through your iPhone's camera.
+
+## Features
+
+- ⏰ Set alarms with a simple, beautiful interface
+- 📸 Camera-based pushup detection using Vision framework
+- 🎯 Real-time pose tracking with body keypoint detection
+- ✅ Form validation - ensures proper pushup technique
+- 🔊 Persistent alarm sound until you complete 10 pushups
+- 🧪 Test mode to try pushup detection without setting an alarm
+
+## Requirements
+
+- **iOS 17.0+** (uses latest Vision and SwiftUI features)
+- **Xcode 15.0+** (with Swift 5.9+)
+- **Physical iPhone device** (camera access required; simulator won't work for testing)
+- **Apple Developer account** (free account works for personal testing)
+
+## Installation & Setup
+
+### 1. Transfer Files to Your Mac
+
+Download or copy the entire `PushupAlarm` project folder to your Mac.
+
+### 2. Open in Xcode
+
+1. Double-click `PushupAlarm.xcodeproj` to open in Xcode
+2. Wait for Xcode to index the project
+
+### 3. Configure Signing
+
+1. Select the project in the navigator (top item)
+2. Select the "PushupAlarm" target
+3. Go to "Signing & Capabilities" tab
+4. Select your **Team** from the dropdown
+   - If you don't have a team, click "Add Account" and sign in with your Apple ID
+5. Xcode will automatically generate a bundle identifier like `com.yourname.PushupAlarm`
+
+### 4. Connect Your iPhone
+
+1. Connect your iPhone to your Mac via USB
+2. Unlock your iPhone and trust the computer if prompted
+3. In Xcode, select your iPhone from the device dropdown (top toolbar)
+
+### 5. Build & Run
+
+1. Click the ▶️ Play button in Xcode (or press `Cmd + R`)
+2. The first time you run:
+   - On your iPhone, go to **Settings > General > VPN & Device Management**
+   - Tap your Apple ID and select "Trust"
+3. The app will launch on your iPhone!
+
+## How to Use
+
+### Setting an Alarm
+
+1. Open the app
+2. Use the time picker to select your alarm time
+3. Tap **"Set Alarm"**
+4. Lock your phone or close the app - the alarm will still trigger
+
+### When the Alarm Goes Off
+
+1. The app will open automatically (or you can tap the notification)
+2. The alarm sound will play persistently
+3. Position yourself in front of the camera:
+   - Stand far enough that your full body is visible
+   - Face the camera (front-facing camera is used)
+   - Make sure there's good lighting
+4. Perform 10 proper pushups:
+   - The app tracks your elbow angle and body alignment
+   - Go down until your elbows are at ~90 degrees
+   - Push back up to full extension
+   - Keep your body straight (planking position)
+5. After 10 valid pushups, the alarm dismisses automatically!
+
+### Testing Pushup Detection
+
+Before your first alarm, try the detection:
+1. Tap **"Test Pushup Detection"** at the bottom of the main screen
+2. This lets you practice and see how the detection works
+3. No alarm sound in test mode
+4. Tap the ❌ button to exit
+
+## Technical Details
+
+### How Pushup Detection Works
+
+The app uses Apple's Vision framework with the following approach:
+
+1. **Body Pose Detection**: `VNDetectHumanBodyPoseRequest` identifies 19+ body keypoints (shoulders, elbows, wrists, hips, etc.)
+
+2. **Angle Calculation**: Calculates elbow angles by measuring the angle between:
+   - Shoulder → Elbow → Wrist vectors
+
+3. **Pushup Recognition**:
+   - **Down position**: Elbow angle < 90°
+   - **Up position**: Elbow angle > 160°
+   - **Rep counted**: When transitioning from UP → DOWN
+
+4. **Form Validation**: 
+   - Checks body alignment (shoulder-to-hip straightness)
+   - Ensures proper plank position
+   - Rejects incomplete reps or poor form
+
+### Architecture
+
+```
+PushupAlarmApp.swift      - App entry point, notification permissions
+ContentView.swift          - Main UI with alarm scheduling
+AlarmManager.swift         - Handles alarm scheduling, notifications, audio
+PushupDetector.swift       - Vision-based pose detection & counting logic
+CameraView.swift           - AVFoundation camera setup & video feed
+AlarmChallengeView.swift   - Fullscreen pushup challenge UI
+```
+
+## Troubleshooting
+
+### Camera Not Working
+
+- Make sure you're testing on a **physical device** (not simulator)
+- Check that camera permissions are granted:
+  - Settings > Privacy & Security > Camera > PushupAlarm (should be ON)
+
+### Alarm Not Triggering
+
+- Ensure notifications are enabled:
+  - Settings > Notifications > PushupAlarm
+  - Allow Notifications should be ON
+- Make sure the alarm time is in the future
+- Check that the app has permission to play sounds
+
+### Pushups Not Being Counted
+
+- **Lighting**: Ensure good lighting so the camera can see you clearly
+- **Distance**: Step back so your entire body is in frame
+- **Angle**: Face the camera directly (use front camera)
+- **Form**: Do full range of motion pushups with straight body
+- **Speed**: Don't rush - give the detector time to register each position
+
+### Build Errors in Xcode
+
+- Make sure you're using **Xcode 15+** and targeting **iOS 17+**
+- Clean build folder: Product > Clean Build Folder (Cmd + Shift + K)
+- Delete derived data: Xcode > Preferences > Locations > Derived Data > Delete
+- Restart Xcode
+
+## Customization Ideas
+
+Want to modify the app? Here are some ideas:
+
+- **Change rep count**: Edit `requiredPushups` in `AlarmChallengeView.swift`
+- **Different exercises**: Modify angle thresholds in `PushupDetector.swift` for squats, jumping jacks, etc.
+- **Snooze feature**: Add a "5 more pushups for 5 min snooze" button
+- **Recurring alarms**: Modify `AlarmManager` to support daily repeating alarms
+- **Difficulty levels**: Add settings for 5, 10, 15, or 20 pushups
+- **Stats tracking**: Save completed workouts to show weekly totals
+
+## Privacy & Permissions
+
+- **Camera**: Used only for real-time pushup detection, no images/videos are saved
+- **Notifications**: Required to trigger the alarm
+- All processing happens on-device, no data is sent to servers
+
+## Known Limitations
+
+- App must be installed on device (can't run from background without being installed)
+- Camera must see your full body for accurate detection
+- Works best with good lighting conditions
+- Front camera is used (mirrored view)
+- Only portrait orientation supported
+
+## Credits
+
+Built using:
+- **SwiftUI** - Modern declarative UI framework
+- **Vision Framework** - Apple's machine learning-based body pose detection
+- **AVFoundation** - Camera access and video processing
+- **UserNotifications** - Alarm scheduling and notifications
+
+## License
+
+Free to use and modify for personal use. Have fun and stay fit! 💪
+
+---
+
+**Questions or Issues?**
+
+This is a standalone project with no ongoing support, but the code is well-commented. Check the inline comments in each Swift file for implementation details.
