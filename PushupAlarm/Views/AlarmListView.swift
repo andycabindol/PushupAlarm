@@ -119,8 +119,9 @@ struct EmptyAlarmState: View {
             Spacer()
             
             VStack(spacing: 20) {
-                Text("⏰")
-                    .font(.system(size: 80))
+                Image(systemName: "alarm.fill")
+                    .font(.system(size: 70))
+                    .foregroundColor(.gray)
                 
                 Text("No Alarms")
                     .font(.title)

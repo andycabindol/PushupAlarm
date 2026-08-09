@@ -64,8 +64,9 @@ struct WelcomeSlide: View {
             Spacer()
             
             VStack(spacing: 20) {
-                Text("💪")
-                    .font(.system(size: 100))
+                Image(systemName: "alarm.fill")
+                    .font(.system(size: 80))
+                    .foregroundColor(DesignSystem.primaryRed)
                 
                 Text("Pushup Alarm")
                     .font(.system(size: 42, weight: .bold))
@@ -141,8 +142,9 @@ struct AlarmTimeSlide: View {
             Spacer()
             
             VStack(spacing: 16) {
-                Text("⏰")
-                    .font(.system(size: 80))
+                Image(systemName: "clock.fill")
+                    .font(.system(size: 70))
+                    .foregroundColor(DesignSystem.primaryRed)
                 
                 Text("When should we wake you?")
                     .font(.title)
@@ -199,8 +201,9 @@ struct PushupCountSlide: View {
             Spacer()
             
             VStack(spacing: 16) {
-                Text("💪")
-                    .font(.system(size: 80))
+                Image(systemName: "figure.strengthtraining.traditional")
+                    .font(.system(size: 70))
+                    .foregroundColor(DesignSystem.primaryRed)
                 
                 Text("How many pushups?")
                     .font(.title)
@@ -451,8 +454,8 @@ struct OnboardingSuccessView: View {
             Spacer()
             
             VStack(spacing: 24) {
-                Text("✓")
-                    .font(.system(size: 100, weight: .bold))
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 90))
                     .foregroundColor(DesignSystem.primaryRed)
                 
                 Text("Your alarm is set")

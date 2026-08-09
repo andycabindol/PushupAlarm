@@ -169,8 +169,8 @@ struct CompletionOverlay: View {
                 .ignoresSafeArea()
             
             VStack(spacing: 32) {
-                Text("✓")
-                    .font(.system(size: 100, weight: .bold))
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 90))
                     .foregroundColor(DesignSystem.primaryRed)
                 
                 if isAlarm {

@@ -132,8 +132,8 @@ struct SuccessOverlay: View {
                 .ignoresSafeArea()
             
             VStack(spacing: 24) {
-                Text("✓")
-                    .font(.system(size: 80, weight: .bold))
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 80))
                     .foregroundColor(DesignSystem.primaryRed)
                 
                 Text("You're all set!")
