@@ -106,8 +106,7 @@ struct OnboardingTestView: View {
         .onChange(of: pushupDetector.pushupCount) { oldValue, newValue in
             if newValue >= pushupCount && !showSuccess {
                 showSuccess = true
-                let generator = UINotificationFeedbackGenerator()
-                generator.notificationOccurred(.success)
+                generateHaptic(.heavy)
             } else if newValue > oldValue {
                 generateHaptic(.light)
             }
