@@ -406,8 +406,7 @@ struct TestSlide: View {
         .onChange(of: pushupDetector.pushupCount) { oldValue, newValue in
             if newValue >= pushupCount && !testCompleted {
                 testCompleted = true
-                let generator = UINotificationFeedbackGenerator()
-                generator.notificationOccurred(.success)
+                generateHaptic(.heavy)
                 
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                     showingSuccess = true
@@ -520,8 +519,7 @@ struct OnboardingSuccessView: View {
                 scale = 1.0
                 opacity = 1.0
             }
-            let generator = UINotificationFeedbackGenerator()
-            generator.notificationOccurred(.success)
+            generateHaptic(.heavy)
         }
     }
     

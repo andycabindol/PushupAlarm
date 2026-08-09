@@ -8,7 +8,6 @@
 
 /* Begin PBXBuildFile section */
 		A10000001 /* PushupAlarmApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000 /* PushupAlarmApp.swift */; };
-		A10000003 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000002 /* ContentView.swift */; };
 		A10000005 /* AlarmManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000004 /* AlarmManager.swift */; };
 		A10000007 /* PushupDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000006 /* PushupDetector.swift */; };
 		A10000009 /* CameraView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000008 /* CameraView.swift */; };
