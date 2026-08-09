@@ -58,28 +58,39 @@ class PushupDetector: ObservableObject {
     }
     
     private func analyzePose(_ observation: VNHumanBodyPoseObservation) {
+        let leftShoulder = try? observation.recognizedPoint(.leftShoulder)
+        let rightShoulder = try? observation.recognizedPoint(.rightShoulder)
         let neck = try? observation.recognizedPoint(.neck)
         let nose = try? observation.recognizedPoint(.nose)
         
-        // Try neck first (more reliable when looking down), fallback to nose
-        guard let headPoint = [neck, nose].first(where: { $0?.confidence ?? 0 > minConfidence }) else {
-            handleMiss(reason: "Face the camera so we can see your upper body")
+        // Try shoulders first (most reliable), then neck, then nose
+        let shoulders = [leftShoulder, rightShoulder].compactMap { $0 }.filter { $0.confidence > minConfidence }
+        
+        let headY: CGFloat
+        if !shoulders.isEmpty {
+            // Use average of visible shoulders (most reliable)
+            let avgY = shoulders.map { $0.location.y }.reduce(0, +) / CGFloat(shoulders.count)
+            headY = avgY
+        } else if let neckPoint = neck, neckPoint.confidence > minConfidence {
+            headY = neckPoint.location.y
+        } else if let nosePoint = nose, nosePoint.confidence > minConfidence {
+            headY = nosePoint.location.y
+        } else {
+            handleMiss(reason: "Position yourself so camera can see your upper body")
             return
         }
         
         consecutiveMisses = 0
         
-        let rawHeadY = headPoint.location.y
-        
-        let headY: CGFloat
+        let smoothedY: CGFloat
         if let smoothedHeadY {
-            headY = smoothedHeadY + (rawHeadY - smoothedHeadY) * smoothing
+            smoothedY = smoothedHeadY + (headY - smoothedHeadY) * smoothing
         } else {
-            headY = rawHeadY
+            smoothedY = headY
         }
-        smoothedHeadY = headY
+        smoothedHeadY = smoothedY
         
-        let distanceFromLine = targetLineY - headY
+        let distanceFromLine = targetLineY - smoothedY
         
         let isDown = distanceFromLine <= -downThreshold
         let isUp = distanceFromLine >= upThreshold
@@ -99,20 +110,20 @@ class PushupDetector: ObservableObject {
                 didCount = true
                 newFeedback = "Rep \(pushupCount + 1) complete!"
             } else {
-                newFeedback = "Start position — lower your head below the line"
+                newFeedback = "Start position — lower below the line"
             }
         } else {
             newPhase = .neutral
             if hasReachedBottom {
                 newFeedback = "Push up past the line"
             } else {
-                newFeedback = "Dip your head below the red line"
+                newFeedback = "Lower your body below the red line"
             }
         }
         
         DispatchQueue.main.async {
             self.bodyDetected = true
-            self.headPosition = headY
+            self.headPosition = smoothedY
             self.currentPhase = newPhase
             if didCount {
                 self.pushupCount += 1
