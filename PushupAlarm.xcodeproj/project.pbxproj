@@ -26,7 +26,6 @@
 /* Begin PBXFileReference section */
 		A0FFFFFF0 /* PushupAlarm.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PushupAlarm.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000000 /* PushupAlarmApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushupAlarmApp.swift; sourceTree = "<group>"; };
-		A10000002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		A10000004 /* AlarmManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlarmManager.swift; sourceTree = "<group>"; };
 		A10000006 /* PushupDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushupDetector.swift; sourceTree = "<group>"; };
 		A10000008 /* CameraView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraView.swift; sourceTree = "<group>"; };
@@ -68,7 +67,6 @@
 				A10000010 /* Info.plist */,
 				A10000000 /* PushupAlarmApp.swift */,
 				A10000012 /* DesignSystem.swift */,
-				A10000002 /* ContentView.swift */,
 				A10000014 /* OnboardingView.swift */,
 				A10000016 /* OnboardingTestView.swift */,
 				A10000020 /* Models */,
@@ -180,7 +178,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10000001 /* PushupAlarmApp.swift in Sources */,
-				A10000003 /* ContentView.swift in Sources */,
 				A10000005 /* AlarmManager.swift in Sources */,
 				A10000007 /* PushupDetector.swift in Sources */,
 				A10000009 /* CameraView.swift in Sources */,
