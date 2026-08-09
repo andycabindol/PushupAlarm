@@ -5,6 +5,7 @@ import UserNotifications
 struct PushupAlarmApp: App {
     @StateObject private var alarmManager = AlarmManager.shared
     @Environment(\.scenePhase) private var scenePhase
+    @State private var showOnboarding = false
     
     init() {
         requestNotificationPermissions()
@@ -12,12 +13,31 @@ struct PushupAlarmApp: App {
     
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .environmentObject(alarmManager)
-                .onAppear {
-                    alarmManager.checkForActiveAlarm()
+            Group {
+                if showOnboarding {
+                    OnboardingView(isPresented: $showOnboarding)
+                        .environmentObject(alarmManager)
+                } else {
+                    AlarmListView(alarmStore: alarmManager.alarmStore)
+                        .environmentObject(alarmManager)
                 }
+            }
+            .onAppear {
+                checkOnboardingStatus()
+                alarmManager.rescheduleAllAlarms()
+            }
+            .fullScreenCover(isPresented: $alarmManager.showingChallenge) {
+                AlarmChallengeView(
+                    isPresented: $alarmManager.showingChallenge,
+                    isTestMode: false
+                )
+                .environmentObject(alarmManager)
+            }
         }
+    }
+    
+    private func checkOnboardingStatus() {
+        showOnboarding = !alarmManager.alarmStore.hasCompletedOnboarding
     }
     
     private func requestNotificationPermissions() {

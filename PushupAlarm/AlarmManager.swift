@@ -6,12 +6,13 @@ import SwiftUI
 class AlarmManager: NSObject, ObservableObject {
     static let shared = AlarmManager()
     
-    @Published var isAlarmSet = false
-    @Published var alarmTime: Date?
     @Published var showingChallenge = false
+    @Published var currentAlarm: Alarm?
+    @Published var requiredPushups = 10
     
     private var audioPlayer: AVAudioPlayer?
     private let notificationCenter = UNUserNotificationCenter.current()
+    let alarmStore = AlarmStore()
     
     override init() {
         super.init()
@@ -29,48 +30,69 @@ class AlarmManager: NSObject, ObservableObject {
     }
     
     func setAlarm(for date: Date) {
+        let alarm = Alarm(
+            time: date,
+            isEnabled: true,
+            pushupCount: requiredPushups,
+            repeatDays: []
+        )
+        alarmStore.addAlarm(alarm)
+        scheduleAlarm(alarm)
+    }
+    
+    func scheduleAlarm(_ alarm: Alarm) {
+        guard alarm.isEnabled else { return }
+        
         let content = UNMutableNotificationContent()
         content.title = "Wake Up!"
-        content.body = "Time to do 10 pushups!"
+        content.body = "Time to do \(alarm.pushupCount) pushup\(alarm.pushupCount == 1 ? "" : "s")!"
         content.sound = UNNotificationSound(named: UNNotificationSoundName("alarm_sound.wav"))
         content.categoryIdentifier = "ALARM_CATEGORY"
+        content.userInfo = ["alarmId": alarm.id.uuidString, "pushupCount": alarm.pushupCount]
         
         let calendar = Calendar.current
-        let components = calendar.dateComponents([.hour, .minute], from: date)
+        let components = calendar.dateComponents([.hour, .minute], from: alarm.time)
         
-        let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
-        let request = UNNotificationRequest(identifier: "pushupAlarm", content: content, trigger: trigger)
-        
-        notificationCenter.add(request) { error in
-            DispatchQueue.main.async {
+        if alarm.isRepeating {
+            for day in alarm.repeatDays {
+                var dayComponents = components
+                dayComponents.weekday = day.rawValue
+                
+                let trigger = UNCalendarNotificationTrigger(dateMatching: dayComponents, repeats: true)
+                let identifier = "\(alarm.id.uuidString)_\(day.rawValue)"
+                let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
+                
+                notificationCenter.add(request) { error in
+                    if let error = error {
+                        print("Error scheduling notification: \(error)")
+                    }
+                }
+            }
+        } else {
+            let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
+            let request = UNNotificationRequest(identifier: alarm.id.uuidString, content: content, trigger: trigger)
+            
+            notificationCenter.add(request) { error in
                 if let error = error {
                     print("Error scheduling notification: \(error)")
-                } else {
-                    self.isAlarmSet = true
-                    self.alarmTime = date
-                    print("Alarm set for \(date)")
                 }
             }
         }
     }
     
-    func cancelAlarm() {
-        notificationCenter.removePendingNotificationRequests(withIdentifiers: ["pushupAlarm"])
-        stopAlarmSound()
-        isAlarmSet = false
-        alarmTime = nil
+    func cancelAlarm(_ alarm: Alarm) {
+        if alarm.isRepeating {
+            let identifiers = alarm.repeatDays.map { "\(alarm.id.uuidString)_\($0.rawValue)" }
+            notificationCenter.removePendingNotificationRequests(withIdentifiers: identifiers)
+        } else {
+            notificationCenter.removePendingNotificationRequests(withIdentifiers: [alarm.id.uuidString])
+        }
     }
     
-    func checkForActiveAlarm() {
-        notificationCenter.getPendingNotificationRequests { requests in
-            DispatchQueue.main.async {
-                self.isAlarmSet = requests.contains(where: { $0.identifier == "pushupAlarm" })
-                if self.isAlarmSet, let request = requests.first(where: { $0.identifier == "pushupAlarm" }),
-                   let trigger = request.trigger as? UNCalendarNotificationTrigger,
-                   let nextTriggerDate = trigger.nextTriggerDate() {
-                    self.alarmTime = nextTriggerDate
-                }
-            }
+    func rescheduleAllAlarms() {
+        notificationCenter.removeAllPendingNotificationRequests()
+        for alarm in alarmStore.alarms where alarm.isEnabled {
+            scheduleAlarm(alarm)
         }
     }
     
@@ -97,7 +119,19 @@ class AlarmManager: NSObject, ObservableObject {
     
     func alarmCompleted() {
         stopAlarmSound()
-        cancelAlarm()
+        
+        if let alarm = currentAlarm, !alarm.isRepeating {
+            alarmStore.updateAlarm(Alarm(
+                id: alarm.id,
+                time: alarm.time,
+                isEnabled: false,
+                pushupCount: alarm.pushupCount,
+                repeatDays: alarm.repeatDays,
+                label: alarm.label
+            ))
+        }
+        
+        currentAlarm = nil
         showingChallenge = false
     }
 }
@@ -108,15 +142,8 @@ extension AlarmManager: UNUserNotificationCenterDelegate {
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        if notification.request.identifier == "pushupAlarm" {
-            DispatchQueue.main.async {
-                self.showingChallenge = true
-                self.playAlarmSound()
-            }
-            completionHandler([.banner, .sound])
-        } else {
-            completionHandler([.banner, .sound, .badge])
-        }
+        handleAlarmNotification(notification)
+        completionHandler([.banner, .sound])
     }
     
     func userNotificationCenter(
@@ -124,12 +151,24 @@ extension AlarmManager: UNUserNotificationCenterDelegate {
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        if response.notification.request.identifier == "pushupAlarm" {
-            DispatchQueue.main.async {
-                self.showingChallenge = true
-                self.playAlarmSound()
-            }
-        }
+        handleAlarmNotification(response.notification)
         completionHandler()
+    }
+    
+    private func handleAlarmNotification(_ notification: UNNotification) {
+        guard let alarmIdString = notification.request.content.userInfo["alarmId"] as? String,
+              let alarmId = UUID(uuidString: alarmIdString),
+              let alarm = alarmStore.alarms.first(where: { $0.id == alarmId }) else {
+            return
+        }
+        
+        let pushupCount = notification.request.content.userInfo["pushupCount"] as? Int ?? alarm.pushupCount
+        
+        DispatchQueue.main.async {
+            self.currentAlarm = alarm
+            self.requiredPushups = pushupCount
+            self.showingChallenge = true
+            self.playAlarmSound()
+        }
     }
 }
