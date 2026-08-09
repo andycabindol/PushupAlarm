@@ -135,17 +135,19 @@ class PushupDetector: ObservableObject {
     private func handleMiss(reason: String) {
         consecutiveMisses += 1
         
+        // If mid-pushup (bottom reached), hold state longer to allow fallback tracking
         if hasReachedBottom && consecutiveMisses <= maxMissesToHold {
             DispatchQueue.main.async {
                 self.bodyDetected = true
                 self.currentPhase = .down
-                self.feedback = "Down ✓ — now push up"
+                self.feedback = "Keep going — push up"
             }
             return
         }
         
         if consecutiveMisses > maxMissesToHold {
             smoothedHeadY = nil
+            // Don't reset hasReachedBottom - preserve rep progress
         }
         
         DispatchQueue.main.async {

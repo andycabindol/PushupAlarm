@@ -137,7 +137,8 @@ struct AlarmChallengeView: View {
     
     private func completeChallenge() {
         showSuccess = true
-        generateHaptic(.success)
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(.success)
         
         if !isTestMode {
             alarmManager.alarmCompleted()
