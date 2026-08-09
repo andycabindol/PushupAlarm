@@ -58,16 +58,18 @@ class PushupDetector: ObservableObject {
     }
     
     private func analyzePose(_ observation: VNHumanBodyPoseObservation) {
+        let neck = try? observation.recognizedPoint(.neck)
         let nose = try? observation.recognizedPoint(.nose)
         
-        guard let nosePoint = nose, nosePoint.confidence > minConfidence else {
-            handleMiss(reason: "Face the camera so we can see your head")
+        // Try neck first (more reliable when looking down), fallback to nose
+        guard let headPoint = [neck, nose].first(where: { $0?.confidence ?? 0 > minConfidence }) else {
+            handleMiss(reason: "Face the camera so we can see your upper body")
             return
         }
         
         consecutiveMisses = 0
         
-        let rawHeadY = nosePoint.location.y
+        let rawHeadY = headPoint.location.y
         
         let headY: CGFloat
         if let smoothedHeadY {
