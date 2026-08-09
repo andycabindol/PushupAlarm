@@ -11,7 +11,9 @@ struct OnboardingView: View {
     
     var body: some View {
         ZStack {
-            Color.white.ignoresSafeArea()
+            if currentPage != 3 {
+                Color.white.ignoresSafeArea()
+            }
             
             if showingSuccess {
                 OnboardingSuccessView(
@@ -40,18 +42,9 @@ struct OnboardingView: View {
                     )
                     .tag(3)
                 }
-                .tabViewStyle(.page(indexDisplayMode: .always))
+                .tabViewStyle(.page(indexDisplayMode: currentPage == 3 ? .never : .always))
                 .indexViewStyle(.page(backgroundDisplayMode: .always))
             }
-        }
-        .fullScreenCover(isPresented: $showingTest) {
-            OnboardingTestView(
-                isPresented: $showingTest,
-                pushupCount: pushupCount,
-                onComplete: {
-                    showingSuccess = true
-                }
-            )
         }
     }
     
@@ -228,26 +221,26 @@ struct PushupCountSlide: View {
                 
                 HStack(spacing: 20) {
                     Button(action: {
-                        if pushupCount > 1 {
-                            pushupCount -= 1
+                        if pushupCount > 5 {
+                            pushupCount -= 5
                         }
                     }) {
                         Image(systemName: "minus.circle.fill")
                             .font(.system(size: 50))
-                            .foregroundColor(pushupCount > 1 ? .black : .gray)
+                            .foregroundColor(pushupCount > 5 ? .black : .gray)
                     }
-                    .disabled(pushupCount <= 1)
+                    .disabled(pushupCount <= 5)
                     
                     Button(action: {
-                        if pushupCount < 50 {
-                            pushupCount += 1
+                        if pushupCount < 100 {
+                            pushupCount += 5
                         }
                     }) {
                         Image(systemName: "plus.circle.fill")
                             .font(.system(size: 50))
-                            .foregroundColor(pushupCount < 50 ? .black : .gray)
+                            .foregroundColor(pushupCount < 100 ? .black : .gray)
                     }
-                    .disabled(pushupCount >= 50)
+                    .disabled(pushupCount >= 100)
                 }
                 
                 Text("pushups to dismiss alarm")
@@ -287,75 +280,160 @@ struct TestSlide: View {
     @Binding var showingSuccess: Bool
     @Binding var selectedTime: Date
     @EnvironmentObject var alarmManager: AlarmManager
+    @StateObject private var pushupDetector = PushupDetector()
+    @State private var testCompleted = false
     
     var body: some View {
-        VStack(spacing: 40) {
-            Spacer()
+        ZStack {
+            CameraView(pushupDetector: pushupDetector)
+                .ignoresSafeArea()
             
-            VStack(spacing: 16) {
-                Text("🎯")
-                    .font(.system(size: 80))
+            GeometryReader { geometry in
+                let lineY = geometry.size.height * 0.65
                 
-                Text("Try it out!")
-                    .font(.title)
-                    .fontWeight(.bold)
-                    .foregroundColor(.black)
-                    .multilineTextAlignment(.center)
-                
-                Text("Test the pushup detection")
-                    .font(.body)
-                    .foregroundColor(.gray)
-            }
-            .padding(.horizontal, 40)
-            
-            VStack(alignment: .leading, spacing: 20) {
-                InstructionRow(
-                    number: 1,
-                    text: "Place your phone on the floor"
-                )
-                InstructionRow(
-                    number: 2,
-                    text: "Step back so camera sees your face"
-                )
-                InstructionRow(
-                    number: 3,
-                    text: "Dip your head below the red line"
-                )
-                InstructionRow(
-                    number: 4,
-                    text: "Complete \(pushupCount) pushup\(pushupCount == 1 ? "" : "s")"
-                )
-            }
-            .padding(.horizontal, 40)
-            
-            Spacer()
-            
-            VStack(spacing: 16) {
-                Button(action: {
-                    showingTest = true
-                }) {
-                    Text("Test Now")
-                        .font(.headline)
-                        .foregroundColor(.white)
-                }
-                .glassButton()
-                .background(
-                    RoundedRectangle(cornerRadius: 16)
+                VStack(spacing: 0) {
+                    Spacer()
+                        .frame(height: lineY - 1)
+                    
+                    Rectangle()
                         .fill(DesignSystem.primaryRed)
-                        .padding(.horizontal, 0)
-                )
+                        .frame(height: 2)
+                        .overlay(
+                            Rectangle()
+                                .fill(DesignSystem.primaryRed.opacity(0.3))
+                                .frame(height: 30)
+                        )
+                    
+                    Spacer()
+                }
+            }
+            .allowsHitTesting(false)
+            
+            VStack(spacing: 0) {
+                VStack(spacing: 16) {
+                    Text("Let's test it!")
+                        .font(.title)
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+                        .shadow(color: .black.opacity(0.5), radius: 10)
+                    
+                    VStack(alignment: .leading, spacing: 12) {
+                        CompactInstruction(text: "Place phone on floor, camera facing you")
+                        CompactInstruction(text: "Dip your head below the red line")
+                        CompactInstruction(text: "Do \(pushupCount) pushup\(pushupCount == 1 ? "" : "s")")
+                    }
+                    .padding(16)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(.ultraThinMaterial)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16)
+                                    .stroke(Color.white.opacity(0.3), lineWidth: 1)
+                            )
+                    )
+                }
+                .padding(.top, 50)
+                .padding(.horizontal, 24)
+                
+                Spacer()
+                
+                VStack(spacing: 20) {
+                    HStack(alignment: .firstTextBaseline, spacing: 0) {
+                        Text("\(pushupDetector.pushupCount)")
+                            .font(.system(size: 80, weight: .bold, design: .rounded))
+                            .foregroundColor(.white)
+                        
+                        Text(" / \(pushupCount)")
+                            .font(.system(size: 32, weight: .medium))
+                            .foregroundColor(.white.opacity(0.8))
+                    }
+                    .shadow(color: .black.opacity(0.5), radius: 10)
+                    
+                    if pushupDetector.bodyDetected {
+                        Text(pushupDetector.feedback)
+                            .font(.body)
+                            .fontWeight(.medium)
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 12)
+                            .background(
+                                Capsule()
+                                    .fill(.ultraThinMaterial)
+                                    .overlay(
+                                        Capsule()
+                                            .stroke(Color.white.opacity(0.3), lineWidth: 1)
+                                    )
+                            )
+                            .shadow(color: .black.opacity(0.2), radius: 8)
+                    } else {
+                        Text("Position yourself in front of the camera")
+                            .font(.body)
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 12)
+                            .background(
+                                Capsule()
+                                    .fill(Color.black.opacity(0.5))
+                            )
+                    }
+                }
+                .padding(.bottom, 30)
                 
                 Button(action: {
                     showingSuccess = true
                 }) {
-                    Text("Skip Test")
+                    Text("Skip")
                         .font(.body)
-                        .foregroundColor(.gray)
+                        .fontWeight(.medium)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 32)
+                        .padding(.vertical, 12)
+                        .background(
+                            Capsule()
+                                .fill(Color.black.opacity(0.5))
+                                .overlay(
+                                    Capsule()
+                                        .stroke(Color.white.opacity(0.3), lineWidth: 1)
+                                )
+                        )
                 }
-                .padding(.vertical, 8)
+                .padding(.bottom, 50)
             }
-            .padding(.horizontal, 40)
-            .padding(.bottom, 40)
+        }
+        .onChange(of: pushupDetector.pushupCount) { oldValue, newValue in
+            if newValue >= pushupCount && !testCompleted {
+                testCompleted = true
+                generateHaptic(.success)
+                
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    showingSuccess = true
+                }
+            } else if newValue > oldValue {
+                generateHaptic(.light)
+            }
+        }
+    }
+    
+    private func generateHaptic(_ style: UIImpactFeedbackGenerator.FeedbackStyle) {
+        let generator = UIImpactFeedbackGenerator(style: style)
+        generator.impactOccurred()
+    }
+}
+
+struct CompactInstruction: View {
+    let text: String
+    
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(DesignSystem.primaryRed)
+                .frame(width: 6, height: 6)
+            
+            Text(text)
+                .font(.subheadline)
+                .foregroundColor(.white)
+            
+            Spacer()
         }
     }
 }
