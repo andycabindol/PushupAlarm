@@ -58,35 +58,35 @@ class PushupDetector: ObservableObject {
     }
     
     private func analyzePose(_ observation: VNHumanBodyPoseObservation) {
+        let nose = try? observation.recognizedPoint(.nose)
+        let neck = try? observation.recognizedPoint(.neck)
         let leftShoulder = try? observation.recognizedPoint(.leftShoulder)
         let rightShoulder = try? observation.recognizedPoint(.rightShoulder)
-        let neck = try? observation.recognizedPoint(.neck)
-        let nose = try? observation.recognizedPoint(.nose)
         
-        // Try shoulders first (most reliable), then neck, then nose
-        let shoulders = [leftShoulder, rightShoulder].compactMap { $0 }.filter { $0.confidence > minConfidence }
-        
-        let headY: CGFloat
-        if !shoulders.isEmpty {
-            // Use average of visible shoulders (most reliable)
-            let avgY = shoulders.map { $0.location.y }.reduce(0, +) / CGFloat(shoulders.count)
-            headY = avgY
+        // Priority: nose (best movement) > neck > shoulders (most reliable)
+        let trackingPoint: CGFloat
+        if let nosePoint = nose, nosePoint.confidence > minConfidence {
+            trackingPoint = nosePoint.location.y
         } else if let neckPoint = neck, neckPoint.confidence > minConfidence {
-            headY = neckPoint.location.y
-        } else if let nosePoint = nose, nosePoint.confidence > minConfidence {
-            headY = nosePoint.location.y
+            trackingPoint = neckPoint.location.y
         } else {
-            handleMiss(reason: "Position yourself so camera can see your upper body")
-            return
+            let shoulders = [leftShoulder, rightShoulder].compactMap { $0 }.filter { $0.confidence > minConfidence }
+            if !shoulders.isEmpty {
+                trackingPoint = shoulders.map { $0.location.y }.reduce(0, +) / CGFloat(shoulders.count)
+            } else {
+                // Only fail if we've missed too many frames AND not mid-rep
+                handleMiss(reason: "Position yourself so camera can see your upper body")
+                return
+            }
         }
         
         consecutiveMisses = 0
         
         let smoothedY: CGFloat
         if let smoothedHeadY {
-            smoothedY = smoothedHeadY + (headY - smoothedHeadY) * smoothing
+            smoothedY = smoothedHeadY + (trackingPoint - smoothedHeadY) * smoothing
         } else {
-            smoothedY = headY
+            smoothedY = trackingPoint
         }
         smoothedHeadY = smoothedY
         
